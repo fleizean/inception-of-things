@@ -1,0 +1,5 @@
+.vagrant/
+vagrant
+token
+sc.sh
+.claude

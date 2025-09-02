@@ -1,0 +1,28 @@
+Vagrant.configure("2") do |configuration|
+
+  configuration.vm.synced_folder ".", "/vagrant"
+
+  configuration.vm.define "eyagizS" do |master_node|
+    master_node.vm.box = "generic/alpine319"
+    master_node.vm.hostname = "eyagizS"
+    master_node.vm.network "private_network", ip: "192.168.56.110"
+    master_node.vm.provider "virtualbox" do |vm_provider|
+      vm_provider.name = "eyagizS"
+      vm_provider.memory = 1024
+      vm_provider.cpus = 1
+    end
+    master_node.vm.provision "shell", path: "scripts/server.sh"
+  end
+  
+  configuration.vm.define "eyagizSW" do |worker_node|
+    worker_node.vm.box = "generic/alpine319"
+    worker_node.vm.hostname = "eyagizSW"
+    worker_node.vm.network "private_network", ip: "192.168.56.111"
+    worker_node.vm.provider "virtualbox" do |vm_provider|
+      vm_provider.name = "eyagizSW"
+      vm_provider.memory = 1024
+      vm_provider.cpus = 1
+    end
+    worker_node.vm.provision "shell", path: "scripts/worker.sh"
+  end
+end
