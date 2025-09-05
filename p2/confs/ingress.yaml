@@ -1,37 +1,38 @@
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+apiVersion: networking.k8s.io/v1   # Ingress için kullanılan API versiyonu
+kind: Ingress                      # Kaynak türü: Ingress
 metadata:
-  name: app-ingress
-  annotations:
-    spec.ingressClassName: "traefik"
+  name: app-ingress                # Ingress objesinin adı
+  # annotations:                   # (HATALI KONUM) ingressClassName annotation olarak değil, spec altında olmalı
+    # spec.ingressClassName: "traefik"
 spec:
-  rules:
-  - host: app1.com
+  ingressClassName: traefik        # Hangi ingress controller'ı kullanacağını belirtir (ör. Traefik)
+  rules:                           # Trafik yönlendirme kuralları
+  - host: app1.com                 # Eğer gelen istek "app1.com" domaininden ise
     http:
       paths:
-      - path: /
-        pathType: Prefix
-        backend:
+      - path: /                    # "/" ile başlayan tüm path'ler
+        pathType: Prefix           # Path eşleşme tipi: Prefix (başlangıcı eşleştir)
+        backend:                   # İstek yönlendirileceği servis bilgisi
           service:
-            name: app1
+            name: app1             # Yönlendirilecek Kubernetes Service adı
             port:
-              number: 80
-  - host: app2.com
+              number: 80           # Servisin portu (80 HTTP için)
+  - host: app2.com                 # Eğer gelen istek "app2.com" domaininden ise
     http:
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /                    # "/" ile başlayan tüm path'ler
+        pathType: Prefix           # Prefix bazlı yönlendirme
         backend:
           service:
-            name: app2
+            name: app2             # Yönlendirilecek Service adı
             port:
-              number: 80
-  - http:
+              number: 80           # Service portu
+  - http:                          # Host belirtilmezse (herhangi bir domain için)
       paths:
-      - path: /
-        pathType: Prefix
+      - path: /                    # "/" path'i için
+        pathType: Prefix           # Prefix bazlı eşleşme
         backend:
           service:
-            name: app3
+            name: app3             # Varsayılan olarak app3 servisine yönlendirilir
             port:
-              number: 80
+              number: 80           # Service portu

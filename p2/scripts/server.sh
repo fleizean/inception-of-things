@@ -8,10 +8,10 @@ curl -sfL https://get.k3s.io | sh -s - server --write-kubeconfig-mode 644
 rc-update add k3s default
 rc-service k3s start
 
-echo "Waiting for K3s to initialize..."
+echo "[INFO] Starting K3s initialization process..."
 while [ ! -f /etc/rancher/k3s/k3s.yaml ]; do
     sleep 2
-    echo "Waiting for k3s.yaml to be created..."
+    echo "[WAIT] Checking for k3s.yaml configuration..."
 done
 
 sleep 10
@@ -25,16 +25,16 @@ echo "export KUBECONFIG=/home/vagrant/.kube/config" >> /home/vagrant/.bashrc
 
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 
-echo "Waiting for node to be ready..."
+echo "[STATUS] Checking node readiness..."
 until kubectl get nodes | grep -q " Ready"; do
     sleep 5
-    echo "Waiting for node to become ready..."
+    echo "[WAIT] Node not yet ready, waiting..."
 done
 
-echo "Waiting for system pods..."
+echo "[INIT] Waiting for system pods to stabilize..."
 sleep 15
 
-echo "Creating ConfigMaps..."
+echo "[CONFIG] Preparing application ConfigMaps..."
 
 kubectl create configmap app-one-config \
     --from-file=index.html=/vagrant/confs/src/app1.html \
@@ -48,42 +48,42 @@ kubectl create configmap app-three-config \
     --from-file=index.html=/vagrant/confs/src/app3.html \
     --dry-run=client -o yaml | kubectl apply -f -
 
-echo "ConfigMaps created:"
+echo "[SUCCESS] ConfigMaps created successfully:"
 kubectl get configmaps
 
-echo "Deploying applications..."
+echo "[DEPLOY] Launching application containers..."
 kubectl apply -f /vagrant/confs/app1.yaml
 kubectl apply -f /vagrant/confs/app2.yaml
 kubectl apply -f /vagrant/confs/app3.yaml
 
 kubectl apply -f /vagrant/confs/ingress.yaml
 
-echo "Waiting for deployments to be ready..."
+echo "[WAIT] Ensuring deployments are available..."
 kubectl wait --for=condition=available --timeout=120s deployment/app1 || true
 kubectl wait --for=condition=available --timeout=120s deployment/app2 || true
 kubectl wait --for=condition=available --timeout=120s deployment/app3 || true
 
 echo ""
-echo "=== Setup complete! ==="
+echo "****** SETUP COMPLETED SUCCESSFULLY ******"
 echo ""
-echo "Deployments status:"
+echo "[CLUSTER STATUS] Deployment Information:"
 kubectl get deployments
 echo ""
-echo "Pods status:"
+echo "[CLUSTER STATUS] Pod Information:"
 kubectl get pods
 echo ""
-echo "Services:"
+echo "[CLUSTER STATUS] Service Endpoints:"
 kubectl get svc
 echo ""
-echo "Ingress:"
+echo "[CLUSTER STATUS] Ingress Configuration:"
 kubectl get ingress
 echo ""
-echo "ConfigMaps:"
+echo "[CLUSTER STATUS] Available ConfigMaps:"
 kubectl get configmaps
 echo ""
-echo "Note: For vagrant user, use: export KUBECONFIG=/home/vagrant/.kube/config"
+echo "[USER INFO] To configure kubectl for vagrant user: export KUBECONFIG=/home/vagrant/.kube/config"
 echo ""
-echo "Test commands (run from host machine):"
+echo "[TEST INFO] Commands to verify services (run from host):"
 echo "  curl -H 'Host: app1.com' http://192.168.56.110"
 echo "  curl -H 'Host: app2.com' http://192.168.56.110"
 echo "  curl http://192.168.56.110"
