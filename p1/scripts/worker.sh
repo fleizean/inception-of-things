@@ -1,27 +1,22 @@
 #!/bin/bash
+apk update
+apk add curl
 
-# Update package manager and install dependencies
-apk update && apk add --no-cache curl
+TOKEN_FILE="/vagrant/token"
+SERVER_IP="192.168.56.110"
 
-# Configuration variables
-AUTH_TOKEN_FILE="/vagrant/token"
-CONTROL_PLANE_IP="192.168.56.110"
+echo "[INFO] Server başlatılması ve token oluşturulması bekleniyor..."
 
-printf "[INFO] Awaiting controller node initialization...\n"
-
-# Monitor for authentication token availability
-while [ ! -f "$AUTH_TOKEN_FILE" ] || [ ! -s "$AUTH_TOKEN_FILE" ]; do
+while [ ! -f "$TOKEN_FILE" ] || [ ! -s "$TOKEN_FILE" ]; do
      sleep 2
-     printf "Monitoring for cluster authentication token...\n"
+     echo "[WAIT] Token dosyası bekleniyor..."
 done
 
-# Retrieve cluster join token
-CLUSTER_TOKEN=$(cat "$AUTH_TOKEN_FILE")
+TOKEN=$(cat "$TOKEN_FILE")
 
-printf "[INFO] Authentication credentials located, initiating cluster join process...\n"
+echo "[INFO] Token bulundu, cluster'a agent olarak katılım başlatılıyor..."
 
-# Deploy K3s in worker/agent configuration
-curl -sfL https://get.k3s.io | K3S_URL="https://$CONTROL_PLANE_IP:6443" K3S_TOKEN="$CLUSTER_TOKEN" sh -
+curl -sfL https://get.k3s.io | K3S_URL="https://$SERVER_IP:6443" K3S_TOKEN="$TOKEN" sh -
 
-printf "[SUCCESS] K3s worker node configuration completed!\n"
-printf "Worker node has successfully joined the cluster infrastructure.\n"
+echo "[SUCCESS] K3s agent kurulumu tamamlandı!"
+echo "[SUCCESS] Node cluster'a başarıyla katıldı!"

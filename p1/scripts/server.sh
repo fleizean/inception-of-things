@@ -1,58 +1,63 @@
 #!/bin/bash
-
-# Update package index and install required packages
-apk update && apk add --no-cache curl
-
-printf "[INFO] Initiating K3s controller installation...\n"
-# Deploy K3s server with appropriate kubeconfig settings
+apk update
+apk add curl
+echo "[INFO] K3s server kurulumu başlatılıyor..."
 curl -sfL https://get.k3s.io | sh -s - --write-kubeconfig-mode 644
-
-printf "[INFO] Configuring K3s service management...\n"
-# Add K3s to system startup services
+echo "[INFO] K3s servisi yapılandırılıyor..."
 rc-update add k3s default
-
-# Initialize K3s service
 rc-service k3s start
-
-# Validate service status and attempt recovery if needed
-MAX_ATTEMPTS=3
-attempt=1
-
-while ! rc-service k3s status | grep -q "started"; do
-    printf "[WARN] Service not running (attempt %d/%d), attempting recovery...\n" $attempt $MAX_ATTEMPTS
+if ! rc-service k3s status | grep -q "started"; then
+    echo "[WARN] Servis başlatılamadı, manuel başlatma deneniyor..."
     /usr/local/bin/k3s server --write-kubeconfig-mode 644 &
-    sleep 5
-done
-
-# Define shared token location
-SHARED_TOKEN="/vagrant/token"
-
-printf "[INFO] Awaiting K3s initialization process...\n"
-# Monitor for K3s infrastructure setup completion
-max_wait=60
-elapsed=0
-while [ ! -f /var/lib/rancher/k3s/server/node-token ] && [ $elapsed -lt $max_wait ]; do
+    sleep 10
+fi
+TOKEN_PATH="/vagrant/token"
+echo "[INFO] K3s başlatma işlemi bekleniyor..."
+timeout=60
+counter=0
+while [ ! -f /var/lib/rancher/k3s/server/node-token ] && [ $counter -lt $timeout ]; do
     sleep 2
-    elapsed=$((elapsed + 2))
-    printf "K3s initialization in progress... (%d/%d seconds elapsed)\n" $elapsed $max_wait
+    counter=$((counter + 2))
+    echo "[WAIT] K3s başlatma işlemi devam ediyor... ($counter/$timeout saniye)"
 done
-
-
-printf "[INFO] Verifying API server availability...\n"
-max_wait=60
-elapsed=0
-until curl -k -s https://127.0.0.1:6443/readyz >/dev/null 2>&1 || [ $elapsed -ge $max_wait ]; do
+if [ ! -f /var/lib/rancher/k3s/server/node-token ]; then
+    echo "[ERROR] K3s $timeout saniye sonra başlatılamadı"
+    echo "[DEBUG] Çalışan işlemler:"
+    ps aux | grep k3s
+    echo "[DEBUG] Log kontrolü:"
+    tail -20 /var/log/k3s.log 2>/dev/null || echo "Log dosyası bulunamadı"
+    exit 1
+fi
+echo "[INFO] API server hazırlık durumu kontrol ediliyor..."
+timeout=60
+counter=0
+until curl -k -s https://127.0.0.1:6443/readyz >/dev/null 2>&1 || [ $counter -ge $timeout ]; do
     sleep 3
-    elapsed=$((elapsed + 3))
-    printf "API server health check... (%d/%d seconds)\n" $elapsed $max_wait
+    counter=$((counter + 3))
+    echo "[WAIT] API server bekleniyor... ($counter/$timeout saniye)"
 done
+if [ $counter -ge $timeout ]; then
+    echo "[ERROR] API server $timeout saniye sonra hazır olmadı"
+    echo "[DEBUG] K3s durum kontrolü:"
+    ps aux | grep k3s
+    echo "[DEBUG] Port 6443 kontrolü:"
+    netstat -tlnp | grep 6443 || echo "Port 6443 dinlenmiyor"
+    exit 1
+fi
+cat /var/lib/rancher/k3s/server/node-token > "$TOKEN_PATH"
+chmod 644 "$TOKEN_PATH"
 
-# Export node token for worker nodes
-cat /var/lib/rancher/k3s/server/node-token > "$SHARED_TOKEN"
-chmod 644 "$SHARED_TOKEN"
+echo "[INFO] Vagrant kullanıcısı için kubeconfig ayarlanıyor..."
+mkdir -p /home/vagrant/.kube
+cp /etc/rancher/k3s/k3s.yaml /home/vagrant/.kube/config
+chown -R vagrant:vagrant /home/vagrant/.kube
+chmod 600 /home/vagrant/.kube/config
+echo 'export KUBECONFIG=/home/vagrant/.kube/config' >> /home/vagrant/.bashrc
 
-printf "[SUCCESS] K3s controller configuration completed!\n"
-
-# Verify cluster functionality
+echo "[SUCCESS] K3s server kurulumu tamamlandı!"
+echo "[INFO] Node token kaydedildi: $TOKEN_PATH"
+echo "[INFO] API server hazır durumda!"
+echo "[TEST] kubectl bağlantısı test ediliyor..."
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 kubectl get nodes
-
+echo "[SUCCESS] Kurulum başarıyla tamamlandı!"
