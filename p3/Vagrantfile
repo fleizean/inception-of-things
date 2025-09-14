@@ -5,12 +5,10 @@ Vagrant.configure("2") do |config|
 
   config.vm.define "eozmert" do |vm|
     vm.vm.hostname = "eozmertS"
-    vm.vm.network "private_network", ip: "192.168.56.110"
 
     # Port forwarding
     vm.vm.network "forwarded_port", guest: 8888, host: 8888
-    vm.vm.network "forwarded_port", guest: 30080, host: 30080
-    vm.vm.network "forwarded_port", guest: 6443, host: 6443
+    vm.vm.network "forwarded_port", guest: 8080, host: 8080
 
     vm.vm.provider "virtualbox" do |vb|
       vb.name = "eozmertS"
