@@ -1,21 +1,44 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# k3d cluster: VM içinde LB 80 -> VM localhost:8888
-k3d cluster create iot --servers 1 --agents 1 -p "8888:80@loadbalancer"
+CLUSTER_NAME="iot"
 
-# Namespace'ler
+echo "[INFO] k3d cluster oluşturuluyor..."
+k3d cluster delete $CLUSTER_NAME 2>/dev/null || true
+
+k3d cluster create $CLUSTER_NAME \
+    --servers 1 \
+    --agents 1 \
+    --port "8888:80@loadbalancer" \
+    --api-port 6443 \
+    --wait
+
+echo "[SUCCESS] Cluster hazır"
+kubectl get nodes
+
+echo "[INFO] Namespace'ler oluşturuluyor..."
 kubectl create namespace argocd || true
 kubectl create namespace dev || true
 
-# Argo CD
+echo "[INFO] ArgoCD kuruluyor..."
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Biraz bekleyip pod durumu göster (opsiyonel)
-sleep 10
-kubectl -n argocd get pods
+echo "[INFO] ArgoCD bekleniyor..."
+kubectl wait --for=condition=available --timeout=300s deployment/argocd-server -n argocd
 
-# Argo CD Application (senkronize klasör /vagrant'tan)
+echo "[INFO] ArgoCD NodePort yapılandırılıyor..."
+kubectl patch svc argocd-server -n argocd -p '{"spec":{"type":"NodePort"}}'
+
+echo "[INFO] ArgoCD Application oluşturuluyor..."
 kubectl apply -f /vagrant/confs/application.yaml
 
-echo ">>> setup.sh tamam. Test için: curl http://localhost:8888 (host makineden)."
+# Admin şifresi
+ARGOCD_PASSWORD=$(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d 2>/dev/null || echo "admin")
+
+echo ""
+echo "=============== KURULUM TAMAMLANDI ==============="
+echo "ArgoCD URL: http://localhost:30080"
+echo "Kullanıcı: admin"
+echo "Şifre: $ARGOCD_PASSWORD"
+echo "Test: curl http://localhost:8888"
+echo "=============================================="
