@@ -1,0 +1,22 @@
+Vagrant.configure("2") do |config|
+  config.vm.box = "bento/ubuntu-22.04"
+  config.ssh.insert_key = true
+  config.vm.boot_timeout = 600
+
+  config.vm.define "k3d-argocd" do |vm|
+    vm.vm.hostname = "k3d-argocd"
+    vm.vm.network "private_network", ip: "192.168.56.110"   # GEÇİCİ KAPALI
+
+    vm.vm.network "forwarded_port", guest: 8888, host: 8888, auto_correct: true
+    vm.vm.provider "virtualbox" do |vb|
+      vb.name = "k3d-argocd-2"
+      vb.cpus = 2
+      vb.memory = 4096
+      vb.gui = true
+    end
+
+    vm.vm.synced_folder ".", "/vagrant", type: "virtualbox"
+    vm.vm.provision "shell", path: "scripts/install.sh"
+    vm.vm.provision "shell", path: "scripts/setup.sh"
+  end
+end
