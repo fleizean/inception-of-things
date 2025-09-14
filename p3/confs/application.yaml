@@ -1,29 +1,59 @@
+# p3/confs/app-deployment.yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: playground-app
+  namespace: dev
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: playground-app
+  template:
+    metadata:
+      labels:
+        app: playground-app
+    spec:
+      containers:
+        - name: playground
+          image: wil42/playground:v1     # first version v1
+          ports:
+            - containerPort: 8888
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: playground-svc
+  namespace: dev
+spec:
+  selector:
+    app: playground-app
+  ports:
+    - port: 80
+      targetPort: 8888
+      protocol: TCP
+  type: ClusterIP
+---
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: playground
+  name: my-app
   namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
-  
   source:
-    repoURL: https://github.com/mukeles123/mukeles42.git
+    repoURL: 'https://github.com/mukeles123/mukeles42.git'  # Git repo URL
     targetRevision: HEAD
-    path: .
-  
+    path: 'dev/'  # file path in git repo
   destination:
-    server: https://kubernetes.default.svc
-    namespace: dev
-  
+    server: 'https://kubernetes.default.svc'
+    namespace: dev  # the namespace that we want to deploy the sources/apps
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-    - CreateNamespace=true
-    - PrunePropagationPolicy=foreground
-    - PruneLast=true
-  
-  revisionHistoryLimit: 3

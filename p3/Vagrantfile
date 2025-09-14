@@ -1,24 +1,27 @@
 Vagrant.configure("2") do |config|
-  config.vm.synced_folder ".", "/vagrant"
+  config.vm.box      = "debian/bullseye64"
+  config.vm.hostname = "eozmertS"
 
-  config.vm.define "eozmertS" do |server|
-    server.vm.box = "generic/alpine319"
-    server.vm.hostname = "eozmertS"
-    server.vm.network "private_network", ip: "192.168.56.110"
-    
-    # Port forwarding for ArgoCD and application access
-    server.vm.network "forwarded_port", guest: 8888, host: 8888
-    server.vm.network "forwarded_port", guest: 30080, host: 30080
-    
-    server.vm.provider "virtualbox" do |v|
-      v.name = "eozmertS"
-      v.memory = 3072  # k3d için daha fazla RAM
-      v.cpus = 2       
-      v.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
-      v.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
-    end
-    
-    server.vm.provision "shell", path: "scripts/install.sh"
-    server.vm.provision "shell", path: "scripts/setup.sh"
+  # Paylaşımlı klasör (garanti)
+  config.vm.synced_folder ".", "/vagrant", type: "virtualbox"
+
+  # İsteğe bağlı host-only IP
+  config.vm.network "private_network", ip: "192.168.56.110"
+
+  # Host -> VM port yönlendirmeleri
+  config.vm.network "forwarded_port", guest: 30080, host: 30080  # ArgoCD UI (Ingress/Trafik)
+  config.vm.network "forwarded_port", guest: 8888,  host: 8888   # örnek uygulama (dev)
+
+  config.vm.provider "virtualbox" do |v|
+    v.name = "eozmertS"
+    v.memory = 4096
+    v.cpus   = 2
+    v.customize ["modifyvm", :id, "--natdnshostresolver1", "on"]
+    v.customize ["modifyvm", :id, "--natdnsproxy1", "on"]
   end
+
+  # install.sh (Ingress açık; istersen false yap)
+  config.vm.provision "shell",
+    path: "scripts/install.sh",
+    env: { "USE_INGRESS" => "true" }
 end
