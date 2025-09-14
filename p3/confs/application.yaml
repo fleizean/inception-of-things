@@ -3,6 +3,8 @@ kind: Application
 metadata:
   name: playground
   namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
 spec:
   project: default
   
@@ -21,3 +23,7 @@ spec:
       selfHeal: true
     syncOptions:
     - CreateNamespace=true
+    - PrunePropagationPolicy=foreground
+    - PruneLast=true
+  
+  revisionHistoryLimit: 3
