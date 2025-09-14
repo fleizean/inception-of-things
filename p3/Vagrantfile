@@ -22,6 +22,6 @@ Vagrant.configure("2") do |config|
 
   # install.sh (Ingress açık; istersen false yap)
   config.vm.provision "shell",
-    path: "scripts/install.sh",
-    env: { "USE_INGRESS" => "true" }
+  path: "scripts/install.sh",
+  env: { "USE_INGRESS" => "true", "CONFS_DIR" => "/vagrant/confs" }
 end

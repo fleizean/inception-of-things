@@ -154,9 +154,9 @@ else
 fi
 
 # App + Application
-require_files "${CONFS_DIR}/app-deployment.yaml"
+require_files "${CONFS_DIR}/application.yaml"
 log "Uygulama manifesti (dev) uygulanıyor..."
-kubectl apply -f "${CONFS_DIR}/app-deployment.yaml"
+kubectl apply -f "${CONFS_DIR}/application.yaml"
 
 log "Dev rollout bekleme..."
 kubectl -n dev rollout status deploy/playground-app --timeout=120s || true
