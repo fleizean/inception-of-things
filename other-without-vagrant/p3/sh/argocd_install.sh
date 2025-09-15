@@ -160,17 +160,21 @@ echo "[AUTH] ArgoCD yönetici şifresi:"
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
 echo ""
 echo ""
-echo "[NETWORK] Port yönlendirmeleri başlatılıyor..."
-echo "ArgoCD panel erişimi aktifleştiriliyor..."
-kubectl port-forward svc/argocd-server -n argocd 8080:80 >/dev/null 2>&1 &
-echo "Test uygulaması erişimi aktifleştiriliyor..."
-kubectl port-forward svc/playground-svc -n dev 8888:80 >/dev/null 2>&1 &
 
+echo "[WAIT] Uygulamaların hazır olması bekleniyor..."
+kubectl wait --for=condition=available --timeout=120s deployment/wil-playground -n dev
+
+echo "[NETWORK] Port yönlendirmeleri için komutlar:"
 echo ""
-echo "[READY] Tüm servisler aktif!"
-echo "ArgoCD: http://localhost:8080"
-echo "Playground: http://localhost:8888"
+echo "ArgoCD erişimi için (yeni terminal'de çalıştırın):"
+echo "kubectl port-forward svc/argocd-server -n argocd 8080:80"
 echo ""
-echo "Port yönlendirmelerini durdurmak için: sudo pkill -f 'kubectl port-forward'"
+echo "Playground uygulaması erişimi için (yeni terminal'de çalıştırın):"
+echo "kubectl port-forward svc/wil-playground-service -n dev 8888:8888"
+echo ""
+echo "[INFO] Port forwarding komutlarını ayrı terminallerde çalıştırın!"
+echo "Sonra erişin:"
+echo "- ArgoCD: http://localhost:8080"
+echo "- Playground: http://localhost:8888"
 echo ""
 echo "[INFO] Sistem hazır, geliştirmeye başlayabilirsiniz!"

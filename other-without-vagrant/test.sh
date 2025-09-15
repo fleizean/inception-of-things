@@ -280,10 +280,10 @@ test_docker_config() {
     print_header "Docker Image Konfigürasyonu"
     
     print_test "Deployment image konfigürasyonu kontrol ediliyor"
-    if kubectl get deployment playground-app -n dev -o yaml | grep -q "image:"; then
+    if kubectl get deployment wil-playground -n dev -o yaml | grep -q "image:"; then
         print_success "Docker image konfigürasyonu bulundu"
         echo "Image konfigürasyonu:"
-        kubectl get deployment playground-app -n dev -o yaml | grep "image:"
+        kubectl get deployment wil-playground -n dev -o yaml | grep "image:"
     else
         print_error "Docker image konfigürasyonu bulunamadı"
     fi
@@ -312,7 +312,7 @@ main() {
     print_header "Test Sonuçları Özeti"
     echo -e "Toplam Test: ${TOTAL_TESTS}"
     echo -e "Başarılı: ${GREEN}${PASSED_TESTS}${NC}"
-    echo -e "Başarısız: ${RED}$((TOTAL_TESTS - PASSED_TESTS))${NC}"
+    echo -e "Geçildi: ${RED}$((TOTAL_TESTS - PASSED_TESTS))${NC}"
     
     if [ $PASSED_TESTS -eq $TOTAL_TESTS ]; then
         echo -e "${GREEN}🎉 Tüm testler başarılı! Part 3 değerlendirmeye hazır.${NC}"
