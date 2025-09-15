@@ -15,7 +15,6 @@ k3d cluster create "${CLUSTER_NAME}" \
   --agents 0 \
   --api-port 6550 \
   --port "30080:80@loadbalancer" \
-  --port "8888:30088@server:0" \
   --wait
 
 # kubeconfig (vagrant ve root)

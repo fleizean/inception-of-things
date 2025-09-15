@@ -19,4 +19,7 @@ if [ -f "${CONFS_DIR}/application.yaml" ]; then
   kubectl --kubeconfig "$KCFG" apply -f "${CONFS_DIR}/application.yaml" --validate=false
 fi
 
-echo "deploy.sh tamam"
+echo "[MANUAL] Playground uygulaması için manuel port-forward:"
+echo "kubectl port-forward svc/wil-playground-service -n dev 8888:8888"
+
+echo "Kurulum tamamlandı."
