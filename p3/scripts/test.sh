@@ -12,8 +12,8 @@ set -Eeuo pipefail
 : "${ARGO_APP_NAME:=my-app}"           # ArgoCD Application adı
 : "${USE_INGRESS:=true}"               # true => Ingress/LB; false => port-forward
 : "${LB_HTTP_HOST_PORT:=30080}"        # ArgoCD UI host port (k3d -p "30080:80@loadbalancer")
-: "${APP_SVC_NAME:=playground-svc}"    # Uygulama Service adı
-: "${APP_DEPLOYMENT_NAME:=playground-app}"
+: "${APP_SVC_NAME:=wil-playground-service}"    # Uygulama Service adı
+: "${APP_DEPLOYMENT_NAME:=wil-playground}"
 : "${APP_SVC_PORT:=80}"                # Service port
 : "${APP_LOCAL_TEST_PORT:=8888}"       # Port-forward ile local test portu
 

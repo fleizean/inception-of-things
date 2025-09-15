@@ -7,7 +7,7 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: wil-playground
+  name: wil-playground-service
   namespace: dev
 spec:
   replicas: 1
@@ -28,11 +28,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: playground-svc
+  name: wil-playground-service
   namespace: dev
 spec:
   selector:
-    app: wil-playground-service
+    app: wil-playground
   ports:
     - port: 80
       targetPort: 8888
