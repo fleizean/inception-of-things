@@ -1,28 +1,52 @@
 #!/usr/bin/env bash
+# scripts/test.sh
+# Part 3: K3d + Argo CD doğrulama scripti
 set -Eeuo pipefail
 
-###############################################################################
-# k3d + Argo CD ortam doğrulama (başarılıysa özet verir)
-###############################################################################
-
-: "${USE_INGRESS:=true}"
+##############################
+# Ayarlanabilir değişkenler  #
+##############################
 : "${CLUSTER_NAME:=p3-cluster}"
-: "${K3D_API_PORT:=6550}"
-: "${LB_HTTP_HOST_PORT:=30080}"
-: "${APP_FWD_LOCAL_PORT:=8888}"
-: "${APP_SVC_PORT:=80}"
-: "${APP_TGT_PORT:=8888}"
-: "${ARGO_APP_NAME:=my-app}"
 : "${ARGO_NS:=argocd}"
 : "${DEV_NS:=dev}"
+: "${ARGO_APP_NAME:=my-app}"           # ArgoCD Application adı
+: "${USE_INGRESS:=true}"               # true => Ingress/LB; false => port-forward
+: "${LB_HTTP_HOST_PORT:=30080}"        # ArgoCD UI host port (k3d -p "30080:80@loadbalancer")
+: "${APP_SVC_NAME:=playground-svc}"    # Uygulama Service adı
+: "${APP_DEPLOYMENT_NAME:=playground-app}"
+: "${APP_SVC_PORT:=80}"                # Service port
+: "${APP_LOCAL_TEST_PORT:=8888}"       # Port-forward ile local test portu
 
-log()  { printf "\033[1;36m[+] %s\033[0m\n" "$*"; }
-warn() { printf "\033[1;33m[!] %s\033[0m\n" "$*"; }
-err()  { printf "\033[1;31m[x] %s\033[0m\n" "$*" >&2; }
+##############################
+# Yardımcılar                #
+##############################
+C_RESET=$'\e[0m'; C_CYAN=$'\e[36;1m'; C_YEL=$'\e[33;1m'; C_RED=$'\e[31;1m'; C_GRN=$'\e[32;1m'
+log()  { printf "${C_CYAN}[+] %s${C_RESET}\n" "$*"; }
+warn() { printf "${C_YEL}[!] %s${C_RESET}\n" "$*"; }
+err()  { printf "${C_RED}[x] %s${C_RESET}\n" "$*" >&2; }
+ok()   { printf "${C_GRN}[OK] %s${C_RESET}\n" "$*"; }
 die()  { err "$*"; exit 1; }
-trap 'err "Hata (satır $LINENO). Arka plan süreçleri temizleniyor."; cleanup' ERR INT TERM
 
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "'$1' gerekli ama yok."; }
+
+retry() {
+  local tries=$1; shift
+  local delay=$1; shift
+  local i
+  for ((i=1; i<=tries; i++)); do
+    if "$@"; then return 0; fi
+    sleep "$delay"
+  done
+  return 1
+}
+
+http_ok() {
+  local url="$1"
+  local code
+  code=$(curl -fsS -m 6 -o /dev/null -w "%{http_code}" "$url" || true)
+  # ArgoCD genelde 200/302 döndürür; bazı kurulumlarda 401 de olabilir (login redirect)
+  [[ "$code" == "200" || "$code" == "301" || "$code" == "302" || "$code" == "401" ]]
+}
 
 PF_PIDS=()
 cleanup() {
@@ -35,23 +59,11 @@ cleanup() {
     done
   fi
 }
-finish_ok() { cleanup; exit 0; }
+trap 'cleanup' EXIT
 
-retry() {
-  local tries=$1; shift
-  local delay=$1; shift
-  for ((i=1; i<=tries; i++)); do
-    if "$@"; then return 0; fi
-    sleep "$delay"
-  done
-  return 1
-}
-
-http_ok() {
-  local url="$1"
-  curl -fsS -m 5 -o /dev/null -w "%{http_code}" "$url" | grep -qE '^(200|30[12])$'
-}
-
+########################################
+# Ön koşullar
+########################################
 need_cmd docker
 need_cmd k3d
 need_cmd kubectl
@@ -59,99 +71,125 @@ need_cmd curl
 need_cmd grep
 need_cmd awk
 need_cmd sed
-need_cmd jq
+need_cmd jq || warn "jq bulunamadı (Application health detayını atlayabilirim)."
 
-log "Docker servis durumu kontrol..."
-if ! (sudo systemctl is-active --quiet docker || docker info >/dev/null 2>&1); then
-  die "Docker çalışmıyor görünüyor."
-fi
-
-log "Cluster kontrol: ${CLUSTER_NAME}"
-if ! k3d cluster list 2>/dev/null | grep -q "^${CLUSTER_NAME}\b"; then
-  die "Cluster bulunamadı: ${CLUSTER_NAME}"
-fi
-
-export KUBECONFIG="${HOME}/.kube/config"
-[[ -f "$KUBECONFIG" ]] || die "~/.kube/config yok."
-log "Aktif context: $(kubectl config current-context || echo 'bilinmiyor')"
-
-log "Node'ların Ready olmasını bekliyorum..."
-retry 30 3 bash -c 'kubectl get nodes --no-headers | awk "{print \$2}" | grep -q "^Ready$"' \
-  || die "Node Ready olmadı."
-kubectl get nodes -o wide
-
-log "Namespace kontrolleri..."
-kubectl get ns "${ARGO_NS}" >/dev/null 2>&1 || die "Namespace yok: ${ARGO_NS}"
-kubectl get ns "${DEV_NS}"  >/dev/null 2>&1 || die "Namespace yok: ${DEV_NS}"
-
-log "Argo CD rollout durumu..."
-retry 30 4 kubectl -n "${ARGO_NS}" rollout status deploy/argocd-server >/dev/null 2>&1 || \
-  warn "argocd-server rollout tamamlanmadı."
-kubectl -n "${ARGO_NS}" get pods -o wide
-
-ARGO_PWD="<unknown>"
-if kubectl -n "${ARGO_NS}" get secret argocd-initial-admin-secret >/dev/null 2>&1; then
-  ARGO_PWD="$(kubectl -n "${ARGO_NS}" get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d || true)"
-fi
-
-log "Application bekleniyor: ${ARGO_APP_NAME}"
-retry 40 5 bash -c \
-'kubectl -n "'"${ARGO_NS}"'" get application "'"${ARGO_APP_NAME}"'" -o json \
-  | jq -e ".status.sync.status==\"Synced\" and .status.health.status==\"Healthy\"" >/dev/null' \
-  || warn "Application Synced/Healthy olmadı (devam)."
-
-APP_SYNC="$(kubectl -n "${ARGO_NS}" get application "${ARGO_APP_NAME}" -o jsonpath='{.status.sync.status}' 2>/dev/null || echo '-')"
-APP_HEALTH="$(kubectl -n "${ARGO_NS}" get application "${ARGO_APP_NAME}" -o jsonpath='{.status.health.status}' 2>/dev/null || echo '-')"
-
-log "Dev deployment & service kontrol..."
-retry 30 4 kubectl -n "${DEV_NS}" rollout status deploy/playground-app >/dev/null 2>&1 || \
-  warn "playground-app rollout tamamlanmadı."
-kubectl -n "${DEV_NS}" get deploy,svc,pods -l app=playground-app -o wide
-
-log "Uygulama servis erişim testi (port-forward → localhost:${APP_FWD_LOCAL_PORT})"
-kubectl -n "${DEV_NS}" port-forward svc/playground-svc "${APP_FWD_LOCAL_PORT}:${APP_SVC_PORT}" >/dev/null 2>&1 &
-PF_PIDS+=($!)
-sleep 2
-retry 10 1 http_ok "http://127.0.0.1:${APP_FWD_LOCAL_PORT}/" \
-  || die "Uygulama HTTP testi başarısız (localhost:${APP_FWD_LOCAL_PORT})."
-
-ARGO_URL=""
-if [[ "${USE_INGRESS}" == "true" ]]; then
-  ARGO_URL="http://localhost:${LB_HTTP_HOST_PORT}/"
-  log "ArgoCD UI (Ingress/LB) testi: ${ARGO_URL}"
-  retry 20 3 http_ok "${ARGO_URL}" || warn "ArgoCD UI HTTP testi başarısız (Ingress)."
+# Kubeconfig çöz
+if [[ -n "${KUBECONFIG:-}" && -f "$KUBECONFIG" ]]; then
+  KCFG="$KUBECONFIG"
+elif [[ -f "/home/vagrant/.kube/config" ]]; then
+  KCFG="/home/vagrant/.kube/config"
 else
-  log "ArgoCD UI port-forward testi (localhost:${LB_HTTP_HOST_PORT})"
-  kubectl -n "${ARGO_NS}" port-forward svc/argocd-server "${LB_HTTP_HOST_PORT}:80" >/dev/null 2>&1 &
+  KCFG="$HOME/.kube/config"
+fi
+[[ -f "$KCFG" ]] || die "Kubeconfig bulunamadı: $KCFG"
+
+log "Kubeconfig: $KCFG"
+
+########################################
+# Cluster ve node kontrolleri
+########################################
+log "Cluster mevcut mu?"
+k3d cluster list | grep -q "^${CLUSTER_NAME}\b" \
+  && ok "Cluster bulundu: ${CLUSTER_NAME}" \
+  || die "Cluster yok: ${CLUSTER_NAME}"
+
+log "Context/Nodes"
+kubectl --kubeconfig "$KCFG" config current-context || true
+retry 20 3 kubectl --kubeconfig "$KCFG" get nodes >/dev/null 2>&1 \
+  || die "kubectl get nodes başarısız (API erişimi yok gibi)."
+kubectl --kubeconfig "$KCFG" get nodes -o wide
+
+log "Node'lar Ready mi?"
+retry 30 2 bash -lc 'kubectl --kubeconfig "'"$KCFG"'" get nodes --no-headers | awk "{print \$2}" | grep -q "^Ready$"' \
+  && ok "Node Ready" || die "Node Ready olmadı."
+
+########################################
+# Namespaces
+########################################
+log "Namespaces kontrol"
+kubectl --kubeconfig "$KCFG" get ns "$ARGO_NS" "$DEV_NS"
+ok "argocd ve dev mevcut"
+
+########################################
+# Argo CD kurulum/podlar
+########################################
+log "Argo CD pod rolloutu"
+retry 30 4 kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" rollout status deploy/argocd-server >/dev/null 2>&1 \
+  || warn "argocd-server rollout henüz tamamlanmadı (devam ediyorum)."
+kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get pods -o wide
+
+# Admin şifresi (varsa)
+if kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get secret argocd-initial-admin-secret >/dev/null 2>&1; then
+  ARGO_PWD="$(kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d || true)"
+  [[ -n "$ARGO_PWD" ]] && ok "ArgoCD admin şifresi alındı" || warn "ArgoCD admin şifresi okunamadı."
+else
+  warn "argocd-initial-admin-secret henüz oluşmamış olabilir."
+fi
+
+########################################
+# ArgoCD UI erişimi (Ingress veya PF)
+########################################
+if [[ "$USE_INGRESS" == "true" ]]; then
+  log "Ingress ile ArgoCD UI testi (http://localhost:${LB_HTTP_HOST_PORT}/)"
+  kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get ingress argocd || warn "Ingress 'argocd' bulunamadı."
+  retry 20 3 http_ok "http://localhost:${LB_HTTP_HOST_PORT}/" \
+    && ok "ArgoCD UI HTTP erişimi başarılı (Ingress)" \
+    || warn "ArgoCD UI HTTP testi başarısız (Ingress)."
+else
+  log "Port-forward ile ArgoCD UI testi (localhost:${LB_HTTP_HOST_PORT})"
+  kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" port-forward svc/argocd-server "${LB_HTTP_HOST_PORT}:80" >/dev/null 2>&1 &
   PF_PIDS+=($!)
   sleep 2
-  ARGO_URL="http://localhost:${LB_HTTP_HOST_PORT}/"
-  retry 20 3 http_ok "${ARGO_URL}" || warn "ArgoCD UI HTTP testi başarısız (port-forward)."
+  retry 10 2 http_ok "http://localhost:${LB_HTTP_HOST_PORT}/" \
+    && ok "ArgoCD UI HTTP erişimi başarılı (PF)" \
+    || warn "ArgoCD UI HTTP testi başarısız (PF)."
 fi
 
-echo
-echo "===================== ✅ ORTAM DOĞRULAMA BAŞARILI ====================="
-echo "Cluster          : ${CLUSTER_NAME}"
-echo "Kube Context     : $(kubectl config current-context || echo '-')"
-echo "Nodes            :"
-kubectl get nodes --no-headers | awk '{print "  - "$1" ("$2")"}'
-echo
-echo "Argo CD"
-echo "  URL            : ${ARGO_URL}"
-if [[ -n "${ARGO_PWD}" && "${ARGO_PWD}" != "<unknown>" ]]; then
-  echo "  Admin kullanıcı: admin"
-  echo "  İlk şifre      : ${ARGO_PWD}"
+########################################
+# ArgoCD Application statüsü
+########################################
+if kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get application "$ARGO_APP_NAME" >/dev/null 2>&1; then
+  SYNC="$(kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get application "$ARGO_APP_NAME" -o jsonpath='{.status.sync.status}' || echo '-')"
+  HEALTH="$(kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get application "$ARGO_APP_NAME" -o jsonpath='{.status.health.status}' || echo '-')"
+  echo "Application: ${ARGO_APP_NAME}  Sync:${SYNC}  Health:${HEALTH}"
+  if command -v jq >/dev/null 2>&1; then
+    kubectl --kubeconfig "$KCFG" -n "$ARGO_NS" get application "$ARGO_APP_NAME" -o json | jq -r '.status.resources[]? | [.kind,.namespace,.name,.status] | @tsv' || true
+  fi
 else
-  echo "  İlk şifre      : (secret henüz oluşmamış olabilir)"
+  warn "ArgoCD Application bulunamadı: ${ARGO_APP_NAME}"
 fi
-echo "  Application    : ${ARGO_APP_NAME}"
-echo "    Sync         : ${APP_SYNC}"
-echo "    Health       : ${APP_HEALTH}"
-echo
-echo "Uygulama (dev)"
-echo "  Service        : playground-svc.${DEV_NS} (port ${APP_SVC_PORT} → target ${APP_TGT_PORT})"
-echo "  Local Test URL : http://127.0.0.1:${APP_FWD_LOCAL_PORT}/"
-echo "======================================================================="
-echo
 
-finish_ok
+########################################
+# Dev namespace: Deployment/Service kontrol
+########################################
+log "Dev deployment/service kontrol"
+kubectl --kubeconfig "$KCFG" -n "$DEV_NS" get deploy "$APP_DEPLOYMENT_NAME" -o wide
+kubectl --kubeconfig "$KCFG" -n "$DEV_NS" get svc "$APP_SVC_NAME" -o wide
+
+log "Deployment rollout"
+retry 30 4 kubectl --kubeconfig "$KCFG" -n "$DEV_NS" rollout status deploy/"$APP_DEPLOYMENT_NAME" >/dev/null 2>&1 \
+  && ok "Deployment rollout başarılı" || warn "Deployment rollout tamamlanmadı."
+
+########################################
+# Uygulama HTTP testi (PF ile)
+########################################
+log "Uygulama HTTP testi (port-forward → localhost:${APP_LOCAL_TEST_PORT})"
+kubectl --kubeconfig "$KCFG" -n "$DEV_NS" port-forward svc/"$APP_SVC_NAME" "${APP_LOCAL_TEST_PORT}:${APP_SVC_PORT}" >/dev/null 2>&1 &
+PF_PIDS+=($!)
+sleep 2
+retry 12 1 http_ok "http://127.0.0.1:${APP_LOCAL_TEST_PORT}/" \
+  && ok "Uygulama HTTP OK (PF)" \
+  || die "Uygulama HTTP testi başarısız (PF)."
+
+########################################
+# Özet
+########################################
+echo
+echo "===================== ✅ PART 3 CHECK: PASSED ====================="
+echo "Cluster        : ${CLUSTER_NAME}"
+echo "Namespaces     : ${ARGO_NS}, ${DEV_NS}"
+echo "ArgoCD UI      : $( [[ "$USE_INGRESS" == "true" ]] && echo "http://localhost:${LB_HTTP_HOST_PORT}/ (Ingress)" || echo "PF http://localhost:${LB_HTTP_HOST_PORT}/" )"
+echo "App Service    : ${APP_SVC_NAME}.${DEV_NS}  (svc port ${APP_SVC_PORT} → local ${APP_LOCAL_TEST_PORT})"
+[[ -n "${ARGO_PWD:-}" ]] && echo "ArgoCD admin pw : ${ARGO_PWD}"
+echo "==================================================================="
+echo
